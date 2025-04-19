@@ -31,7 +31,7 @@ require (
 	github.com/consensys/bavard v0.1.27 // indirect
 	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc // indirect
 	github.com/decred/dcrd/dcrec/secp256k1/v4 v4.4.0 // indirect
-	github.com/ethereum/go-ethereum v1.14.12 // indirect
+	github.com/ethereum/go-ethereum v1.14.13 // indirect
 	github.com/klauspost/cpuid/v2 v2.2.10 // indirect
 	github.com/mimoo/StrobeGo v0.0.0-20181016162300-f8f6d4d2b643 // indirect
 	github.com/minio/sha256-simd v1.0.1 // indirect
