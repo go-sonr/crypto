@@ -9,7 +9,7 @@ require (
 	github.com/bwesterb/go-ristretto v1.2.3
 	github.com/consensys/gnark-crypto v0.16.0
 	github.com/cosmos/btcutil v1.0.5
-	github.com/cosmos/cosmos-sdk v0.50.12
+	github.com/cosmos/cosmos-sdk v0.50.13
 	github.com/dustinxie/ecc v0.0.0-20210511000915-959544187564
 	github.com/ecies/go/v2 v2.0.10
 	github.com/golang-jwt/jwt v3.2.2+incompatible
