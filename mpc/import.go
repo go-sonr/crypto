@@ -26,6 +26,8 @@ type Options struct {
 	userKeyshare  Message
 	enclaveBytes  []byte
 	initialShares bool
+	isEncrypted   bool
+	secretKey     []byte
 	curve         CurveName
 }
 
@@ -43,6 +45,17 @@ func WithInitialShares(valKeyshare Message, userKeyshare Message, curve CurveNam
 	}
 }
 
+// WithEncryptedData creates an option to import an enclave from encrypted data.
+func WithEncryptedData(data []byte, key []byte) ImportOption {
+	return func(opts Options) Options {
+		opts.enclaveBytes = data
+		opts.initialShares = false
+		opts.isEncrypted = true
+		opts.secretKey = key
+		return opts
+	}
+}
+
 // WithEnclaveJSON creates an option to import an enclave from serialized bytes.
 func WithEnclaveJSON(enclaveBytes []byte) ImportOption {
 	return func(opts Options) Options {
@@ -52,11 +65,15 @@ func WithEnclaveJSON(enclaveBytes []byte) ImportOption {
 	}
 }
 
+// Apply applies the import options to create an Enclave instance.
 func (opts Options) Apply() (Enclave, error) {
 	// First try to restore from enclave bytes if provided
 	if !opts.initialShares {
 		if len(opts.enclaveBytes) == 0 {
 			return nil, errors.New("enclave bytes cannot be empty")
+		}
+		if opts.isEncrypted {
+			return RestoreEncryptedEnclave(opts.enclaveBytes, opts.secretKey)
 		}
 		return RestoreEnclave(opts.enclaveBytes)
 	} else {
@@ -106,5 +123,23 @@ func RestoreEnclave(data []byte) (Enclave, error) {
 		return nil, fmt.Errorf("failed to unmarshal enclave: %w", err)
 	}
 
+	return keyclave, nil
+}
+
+// RestoreEncryptedEnclave decrypts an enclave from its binary representation. and key
+func RestoreEncryptedEnclave(data []byte, key []byte) (Enclave, error) {
+	keyclave := &EnclaveData{}
+	err := keyclave.Unmarshal(data)
+	if err != nil {
+		return nil, fmt.Errorf("failed to unmarshal enclave: %w", err)
+	}
+	decryptedData, err := keyclave.Decrypt(key, data)
+	if err != nil {
+		return nil, fmt.Errorf("failed to decrypt enclave: %w", err)
+	}
+	err = keyclave.Unmarshal(decryptedData)
+	if err != nil {
+		return nil, fmt.Errorf("failed to unmarshal decrypted enclave: %w", err)
+	}
 	return keyclave, nil
 }
