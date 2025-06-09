@@ -8,60 +8,74 @@ import (
 	"fmt"
 
 	"github.com/go-sonr/crypto/core/curves"
-	"github.com/go-sonr/crypto/keys"
 	"golang.org/x/crypto/sha3"
 )
 
-// keyEnclave implements the Enclave interface
-type keyEnclave struct {
-	// Serialized fields
-	Addr      string       `json:"address"`
-	PubPoint  curves.Point `json:"-"`
-	PubBytes  []byte       `json:"pub_key"`
-	ValShare  Message      `json:"val_share"`
-	UserShare Message      `json:"user_share"`
-
-	// Extra fields
-	nonce []byte
+// EnclaveData implements the Enclave interface
+type EnclaveData struct {
+	PubHex    string    `json:"pub_hex"`   // PubHex is the hex-encoded compressed public key
+	PubBytes  []byte    `json:"pub_bytes"` // PubBytes is the uncompressed public key
+	ValShare  Message   `json:"val_share"`
+	UserShare Message   `json:"user_share"`
+	Nonce     []byte    `json:"nonce"`
+	Curve     CurveName `json:"curve"`
 }
 
-func newEnclave(valShare, userShare Message, nonce []byte) (Enclave, error) {
-	pubPoint, err := getAlicePubPoint(valShare)
+// GetData returns the data of the keyEnclave
+func (k *EnclaveData) GetData() *EnclaveData {
+	return k
+}
+
+// GetEnclave returns the enclave of the keyEnclave
+func (k *EnclaveData) GetEnclave() Enclave {
+	return k
+}
+
+// GetPubPoint returns the public point of the keyEnclave
+func (k *EnclaveData) GetPubPoint() (curves.Point, error) {
+	curve := k.Curve.Curve()
+	return curve.NewIdentityPoint().FromAffineUncompressed(k.PubBytes)
+}
+
+// PubKeyHex returns the public key of the keyEnclave
+func (k *EnclaveData) PubKeyHex() string {
+	return k.PubHex
+}
+
+// PubKeyBytes returns the public key of the keyEnclave
+func (k *EnclaveData) PubKeyBytes() []byte {
+	return k.PubBytes
+}
+
+// Decrypt returns decrypted enclave data
+func (k *EnclaveData) Decrypt(key []byte, encryptedData []byte) ([]byte, error) {
+	hashedKey := GetHashKey(key)
+	block, err := aes.NewCipher(hashedKey)
 	if err != nil {
 		return nil, err
 	}
 
-	addr, err := computeSonrAddr(pubPoint)
+	aesgcm, err := cipher.NewGCM(block)
 	if err != nil {
 		return nil, err
 	}
-	return &keyEnclave{
-		Addr:      addr,
-		PubPoint:  pubPoint,
-		ValShare:  valShare,
-		UserShare: userShare,
-		nonce:     nonce,
-	}, nil
-}
 
-// Address returns the Sonr address of the keyEnclave
-func (k *keyEnclave) Address() string {
-	return k.Addr
-}
-
-// DID returns the DID of the keyEnclave
-func (k *keyEnclave) DID() keys.DID {
-	return keys.NewFromPubKey(k.PubKey())
+	// Decrypt the data using AES-GCM
+	plaintext, err := aesgcm.Open(nil, k.Nonce, encryptedData, nil)
+	if err != nil {
+		return nil, fmt.Errorf("decryption failed: %w", err)
+	}
+	return plaintext, nil
 }
 
 // Export returns encrypted enclave data
-func (k *keyEnclave) Export(key []byte) ([]byte, error) {
-	data, err := k.Serialize()
+func (k *EnclaveData) Encrypt(key []byte) ([]byte, error) {
+	data, err := k.Marshal()
 	if err != nil {
 		return nil, fmt.Errorf("failed to serialize enclave: %w", err)
 	}
 
-	hashedKey := hashKey(key)
+	hashedKey := GetHashKey(key)
 	block, err := aes.NewCipher(hashedKey)
 	if err != nil {
 		return nil, err
@@ -72,60 +86,34 @@ func (k *keyEnclave) Export(key []byte) ([]byte, error) {
 		return nil, err
 	}
 
-	return aesgcm.Seal(nil, k.nonce, data, nil), nil
-}
-
-// Import decrypts and loads enclave data
-func (k *keyEnclave) Import(data []byte, key []byte) error {
-	hashedKey := hashKey(key)
-	block, err := aes.NewCipher(hashedKey)
-	if err != nil {
-		return err
-	}
-
-	aesgcm, err := cipher.NewGCM(block)
-	if err != nil {
-		return err
-	}
-
-	decrypted, err := aesgcm.Open(nil, k.nonce, data, nil)
-	if err != nil {
-		return err
-	}
-
-	return k.Unmarshal(decrypted)
+	return aesgcm.Seal(nil, k.Nonce, data, nil), nil
 }
 
 // IsValid returns true if the keyEnclave is valid
-func (k *keyEnclave) IsValid() bool {
-	return k.PubPoint != nil && k.ValShare != nil && k.UserShare != nil && k.Addr != ""
-}
-
-// PubKey returns the public key of the keyEnclave
-func (k *keyEnclave) PubKey() keys.PubKey {
-	return keys.NewPubKey(k.PubPoint)
+func (k *EnclaveData) IsValid() bool {
+	return k.ValShare != nil && k.UserShare != nil
 }
 
 // Refresh returns a new keyEnclave
-func (k *keyEnclave) Refresh() (Enclave, error) {
-	refreshFuncVal, err := valRefreshFunc(k)
+func (k *EnclaveData) Refresh() (Enclave, error) {
+	refreshFuncVal, err := GetAliceRefreshFunc(k)
 	if err != nil {
 		return nil, err
 	}
-	refreshFuncUser, err := userRefreshFunc(k)
+	refreshFuncUser, err := GetBobRefreshFunc(k)
 	if err != nil {
 		return nil, err
 	}
-	return ExecuteRefresh(refreshFuncVal, refreshFuncUser, k.nonce)
+	return ExecuteRefresh(refreshFuncVal, refreshFuncUser, k.Curve)
 }
 
 // Sign returns the signature of the data
-func (k *keyEnclave) Sign(data []byte) ([]byte, error) {
-	userSign, err := userSignFunc(k, data)
+func (k *EnclaveData) Sign(data []byte) ([]byte, error) {
+	userSign, err := GetBobSignFunc(k, data)
 	if err != nil {
 		return nil, err
 	}
-	valSign, err := valSignFunc(k, data)
+	valSign, err := GetAliceSignFunc(k, data)
 	if err != nil {
 		return nil, err
 	}
@@ -133,12 +121,12 @@ func (k *keyEnclave) Sign(data []byte) ([]byte, error) {
 }
 
 // Verify returns true if the signature is valid
-func (k *keyEnclave) Verify(data []byte, sig []byte) (bool, error) {
-	edSig, err := deserializeSignature(sig)
+func (k *EnclaveData) Verify(data []byte, sig []byte) (bool, error) {
+	edSig, err := DeserializeSignature(sig)
 	if err != nil {
 		return false, err
 	}
-	ePub, err := getEcdsaPoint(k.PubPoint.ToAffineUncompressed())
+	ePub, err := GetECDSAPoint(k.PubBytes)
 	if err != nil {
 		return false, err
 	}
@@ -157,23 +145,14 @@ func (k *keyEnclave) Verify(data []byte, sig []byte) (bool, error) {
 }
 
 // Marshal returns the JSON encoding of keyEnclave
-func (k *keyEnclave) Serialize() ([]byte, error) {
-	// Store compressed public point bytes before marshaling
-	k.PubBytes = k.PubPoint.ToAffineCompressed()
+func (k *EnclaveData) Marshal() ([]byte, error) {
 	return json.Marshal(k)
 }
 
-// Unmarshal parses the JSON-encoded data and stores the result
-func (k *keyEnclave) Unmarshal(data []byte) error {
+// Deserialize parses the JSON-encoded data and stores the result
+func (k *EnclaveData) Unmarshal(data []byte) error {
 	if err := json.Unmarshal(data, k); err != nil {
 		return err
 	}
-	// Reconstruct Point from bytes
-	curve := curves.K256()
-	point, err := curve.NewIdentityPoint().FromAffineCompressed(k.PubBytes)
-	if err != nil {
-		return err
-	}
-	k.PubPoint = point
 	return nil
 }

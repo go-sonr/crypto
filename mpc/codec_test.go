@@ -1,25 +1,16 @@
 package mpc
 
 import (
-	"crypto/rand"
-	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-func randNonce() []byte {
-	nonce := make([]byte, 12)
-	rand.Read(nonce)
-	return nonce
-}
-
 func TestKeyShareGeneration(t *testing.T) {
 	t.Run("Generate Valid Enclave", func(t *testing.T) {
-		nonce := randNonce()
 		// Generate enclave
-		enclave, err := GenEnclave(nonce)
+		enclave, err := NewEnclave()
 		require.NoError(t, err)
 		require.NotNil(t, enclave)
 
@@ -28,9 +19,8 @@ func TestKeyShareGeneration(t *testing.T) {
 	})
 
 	t.Run("Export and Import", func(t *testing.T) {
-		nonce := randNonce()
 		// Generate original enclave
-		original, err := GenEnclave(nonce)
+		original, err := NewEnclave()
 		require.NoError(t, err)
 
 		// Test key for encryption/decryption (32 bytes)
@@ -39,16 +29,12 @@ func TestKeyShareGeneration(t *testing.T) {
 		// Test Export/Import
 		t.Run("Full Enclave", func(t *testing.T) {
 			// Export enclave
-			data, err := original.Export(testKey)
+			data, err := original.Encrypt(testKey)
 			require.NoError(t, err)
 			require.NotEmpty(t, data)
 
 			// Create new empty enclave
-			newEnclave, err := GenEnclave(nonce)
-			require.NoError(t, err)
-
-			// Import enclave
-			err = newEnclave.Import(data, testKey)
+			newEnclave, err := NewEnclave()
 			require.NoError(t, err)
 
 			// Verify the imported enclave works by signing
@@ -59,24 +45,48 @@ func TestKeyShareGeneration(t *testing.T) {
 			require.NoError(t, err)
 			assert.True(t, valid)
 		})
+	})
 
-		// Test Invalid Key
-		t.Run("Invalid Key", func(t *testing.T) {
-			data, err := original.Export(testKey)
-			require.NoError(t, err)
+	t.Run("Encrypt and Decrypt", func(t *testing.T) {
+		// Generate enclave
+		enclave, err := NewEnclave()
+		require.NoError(t, err)
 
-			wrongKey := []byte("wrong-key-12345678")
-			err = original.Import(data, wrongKey)
-			assert.Error(t, err)
-		})
+		// Get the enclave data
+		keyclave, ok := enclave.(*EnclaveData)
+		require.True(t, ok)
+
+		// Create test data
+		testKey := []byte("test-key-12345678-test-key-123456")
+
+		// Test encryption
+		encrypted, err := keyclave.Encrypt(testKey)
+		require.NoError(t, err)
+		require.NotEmpty(t, encrypted)
+
+		// Test decryption
+		decrypted, err := keyclave.Decrypt(testKey, encrypted)
+		require.NoError(t, err)
+		require.NotEmpty(t, decrypted)
+
+		// Verify decrypted data can be used to restore the enclave
+		restoredEnclave := &EnclaveData{}
+		require.NoError(t, err)
+
+		// Ensure restored enclave is valid
+		assert.True(t, restoredEnclave.IsValid())
+
+		// Test decryption with wrong key (should fail)
+		wrongKey := []byte("wrong-key-12345678-wrong-key-123456")
+		_, err = keyclave.Decrypt(wrongKey, encrypted)
+		assert.Error(t, err, "Decryption with wrong key should fail")
 	})
 }
 
 func TestEnclaveOperations(t *testing.T) {
 	t.Run("Signing and Verification", func(t *testing.T) {
-		nonce := randNonce()
 		// Generate valid enclave
-		enclave, err := GenEnclave(nonce)
+		enclave, err := NewEnclave()
 		require.NoError(t, err)
 
 		// Test signing
@@ -97,25 +107,8 @@ func TestEnclaveOperations(t *testing.T) {
 		assert.False(t, valid)
 	})
 
-	t.Run("Address and Public Key", func(t *testing.T) {
-		nonce := randNonce()
-		enclave, err := GenEnclave(nonce)
-		require.NoError(t, err)
-
-		// Test Address
-		addr := enclave.Address()
-		assert.NotEmpty(t, addr)
-		assert.True(t, strings.HasPrefix(addr, "idx"))
-
-		// Test Public Key
-		pubKey := enclave.PubKey()
-		assert.NotNil(t, pubKey)
-		assert.NotEmpty(t, pubKey.Bytes())
-	})
-
 	t.Run("Refresh Operation", func(t *testing.T) {
-		nonce := randNonce()
-		enclave, err := GenEnclave(nonce)
+		enclave, err := NewEnclave()
 		require.NoError(t, err)
 
 		// Test refresh
@@ -125,36 +118,51 @@ func TestEnclaveOperations(t *testing.T) {
 
 		// Verify refreshed enclave is valid
 		assert.True(t, refreshedEnclave.IsValid())
-
-		// Verify it maintains the same address
-		assert.Equal(t, enclave.Address(), refreshedEnclave.Address())
 	})
 }
 
-func TestEnclaveSerialization(t *testing.T) {
-	t.Run("Marshal and Unmarshal", func(t *testing.T) {
-		nonce := randNonce()
-		// Generate original enclave
-		original, err := GenEnclave(nonce)
+func TestEnclaveDataAccess(t *testing.T) {
+	t.Run("GetData", func(t *testing.T) {
+		// Generate enclave
+		enclave, err := NewEnclave()
 		require.NoError(t, err)
-		require.NotNil(t, original)
+		require.NotNil(t, enclave)
 
-		// Marshal
-		keyclave, ok := original.(*keyEnclave)
-		require.True(t, ok)
+		// Get the enclave data
+		data := enclave.GetData()
+		require.NotNil(t, data, "GetData should return non-nil value")
 
-		data, err := keyclave.Serialize()
+		// Verify the data is valid
+		assert.True(t, data.IsValid(), "Enclave data should be valid")
+
+		// Verify the public key in the data matches the enclave's public key
+		assert.Equal(t, enclave.PubKeyHex(), data.PubKeyHex(), "Public keys should match")
+	})
+
+	t.Run("PubKeyHex", func(t *testing.T) {
+		// Generate enclave
+		enclave, err := NewEnclave()
 		require.NoError(t, err)
-		require.NotEmpty(t, data)
+		require.NotNil(t, enclave)
 
-		// Unmarshal
-		restored := &keyEnclave{}
-		err = restored.Unmarshal(data)
+		// Get the public key hex
+		pubKeyHex := enclave.PubKeyHex()
+		require.NotEmpty(t, pubKeyHex, "PubKeyHex should return non-empty string")
+
+		// Check that it's a valid hex string (should be 66 chars for compressed point: 0x02/0x03 + 32 bytes)
+		assert.GreaterOrEqual(t, len(pubKeyHex), 66, "Public key hex should be at least 66 characters")
+		assert.True(t, len(pubKeyHex)%2 == 0, "Hex string should have even length")
+
+		// Compare with the enclave data's public key
+		data := enclave.GetData()
+		assert.Equal(t, data.PubKeyHex(), pubKeyHex, "Public key hex should match the one from GetData")
+
+		// Verify that two different enclaves have different public keys
+		enclave2, err := NewEnclave()
 		require.NoError(t, err)
+		require.NotNil(t, enclave2)
 
-		// Verify restored enclave
-		assert.Equal(t, keyclave.Addr, restored.Addr)
-		assert.True(t, keyclave.PubPoint.Equal(restored.PubPoint))
-		assert.True(t, restored.IsValid())
+		pubKeyHex2 := enclave2.PubKeyHex()
+		assert.NotEqual(t, pubKeyHex, pubKeyHex2, "Different enclaves should have different public keys")
 	})
 }

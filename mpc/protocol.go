@@ -1,18 +1,17 @@
 package mpc
 
 import (
-	"github.com/go-sonr/crypto/core/curves"
 	"github.com/go-sonr/crypto/core/protocol"
 	"github.com/go-sonr/crypto/tecdsa/dklsv1"
 )
 
-// GenEnclave generates a new MPC keyshare
-func GenEnclave(nonce []byte) (Enclave, error) {
-	curve := curves.K256()
+// NewEnclave generates a new MPC keyshare
+func NewEnclave() (Enclave, error) {
+	curve := K256Name.Curve()
 	valKs := dklsv1.NewAliceDkg(curve, protocol.Version1)
 	userKs := dklsv1.NewBobDkg(curve, protocol.Version1)
 	aErr, bErr := RunProtocol(userKs, valKs)
-	if err := checkIteratedErrors(aErr, bErr); err != nil {
+	if err := CheckIteratedErrors(aErr, bErr); err != nil {
 		return nil, err
 	}
 	valRes, err := valKs.Result(protocol.Version1)
@@ -23,13 +22,13 @@ func GenEnclave(nonce []byte) (Enclave, error) {
 	if err != nil {
 		return nil, err
 	}
-	return newEnclave(valRes, userRes, nonce)
+	return ImportEnclave(WithInitialShares(valRes, userRes, K256Name))
 }
 
 // ExecuteSigning runs the MPC signing protocol
 func ExecuteSigning(signFuncVal SignFunc, signFuncUser SignFunc) ([]byte, error) {
 	aErr, bErr := RunProtocol(signFuncVal, signFuncUser)
-	if err := checkIteratedErrors(aErr, bErr); err != nil {
+	if err := CheckIteratedErrors(aErr, bErr); err != nil {
 		return nil, err
 	}
 	out, err := signFuncUser.Result(protocol.Version1)
@@ -40,7 +39,7 @@ func ExecuteSigning(signFuncVal SignFunc, signFuncUser SignFunc) ([]byte, error)
 	if err != nil {
 		return nil, err
 	}
-	sig, err := serializeSignature(s)
+	sig, err := SerializeSignature(s)
 	if err != nil {
 		return nil, err
 	}
@@ -48,9 +47,9 @@ func ExecuteSigning(signFuncVal SignFunc, signFuncUser SignFunc) ([]byte, error)
 }
 
 // ExecuteRefresh runs the MPC refresh protocol
-func ExecuteRefresh(refreshFuncVal RefreshFunc, refreshFuncUser RefreshFunc, nonce []byte) (Enclave, error) {
+func ExecuteRefresh(refreshFuncVal RefreshFunc, refreshFuncUser RefreshFunc, curve CurveName) (Enclave, error) {
 	aErr, bErr := RunProtocol(refreshFuncVal, refreshFuncUser)
-	if err := checkIteratedErrors(aErr, bErr); err != nil {
+	if err := CheckIteratedErrors(aErr, bErr); err != nil {
 		return nil, err
 	}
 	valRefreshResult, err := refreshFuncVal.Result(protocol.Version1)
@@ -61,7 +60,7 @@ func ExecuteRefresh(refreshFuncVal RefreshFunc, refreshFuncUser RefreshFunc, non
 	if err != nil {
 		return nil, err
 	}
-	return newEnclave(valRefreshResult, userRefreshResult, nonce)
+	return ImportEnclave(WithInitialShares(valRefreshResult, userRefreshResult, curve))
 }
 
 // For DKG bob starts first. For refresh and sign, Alice starts first.
