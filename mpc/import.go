@@ -25,6 +25,7 @@ type Options struct {
 	valKeyshare   Message
 	userKeyshare  Message
 	enclaveBytes  []byte
+	enclaveData   *EnclaveData
 	initialShares bool
 	isEncrypted   bool
 	secretKey     []byte
@@ -56,10 +57,10 @@ func WithEncryptedData(data []byte, key []byte) ImportOption {
 	}
 }
 
-// WithEnclaveJSON creates an option to import an enclave from serialized bytes.
-func WithEnclaveJSON(enclaveBytes []byte) ImportOption {
+// WithEnclaveData creates an option to import an enclave from a data struct.
+func WithEnclaveData(data *EnclaveData) ImportOption {
 	return func(opts Options) Options {
-		opts.enclaveBytes = enclaveBytes
+		opts.enclaveData = data
 		opts.initialShares = false
 		return opts
 	}
@@ -75,7 +76,9 @@ func (opts Options) Apply() (Enclave, error) {
 		if opts.isEncrypted {
 			return RestoreEncryptedEnclave(opts.enclaveBytes, opts.secretKey)
 		}
-		return RestoreEnclave(opts.enclaveBytes)
+		if opts.enclaveData != nil {
+		}
+		return RestoreEnclaveFromData(opts.enclaveData)
 	} else {
 		// Then try to build from keyshares
 		if opts.valKeyshare == nil {
@@ -111,19 +114,12 @@ func BuildEnclave(valShare, userShare Message, options Options) (Enclave, error)
 	}, nil
 }
 
-// RestoreEnclave deserializes an enclave from its binary representation.
-func RestoreEnclave(data []byte) (Enclave, error) {
-	if len(data) == 0 {
-		return nil, errors.New("enclave bytes cannot be empty")
+// RestoreEnclaveFromData deserializes an enclave from its data struct.
+func RestoreEnclaveFromData(data *EnclaveData) (Enclave, error) {
+	if data == nil {
+		return nil, errors.New("enclave data cannot be nil")
 	}
-
-	keyclave := &EnclaveData{}
-	err := keyclave.Unmarshal(data)
-	if err != nil {
-		return nil, fmt.Errorf("failed to unmarshal enclave: %w", err)
-	}
-
-	return keyclave, nil
+	return data, nil
 }
 
 // RestoreEncryptedEnclave decrypts an enclave from its binary representation. and key
