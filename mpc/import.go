@@ -68,18 +68,15 @@ func WithEnclaveData(data *EnclaveData) ImportOption {
 
 // Apply applies the import options to create an Enclave instance.
 func (opts Options) Apply() (Enclave, error) {
-	// First try to restore from enclave bytes if provided
-	if !opts.initialShares {
+	// Load from encrypted data if provided
+	if opts.isEncrypted {
 		if len(opts.enclaveBytes) == 0 {
 			return nil, errors.New("enclave bytes cannot be empty")
 		}
-		if opts.isEncrypted {
-			return RestoreEncryptedEnclave(opts.enclaveBytes, opts.secretKey)
-		}
-		if opts.enclaveData != nil {
-		}
-		return RestoreEnclaveFromData(opts.enclaveData)
-	} else {
+		return RestoreEncryptedEnclave(opts.enclaveBytes, opts.secretKey)
+	}
+	// Generate from keyshares if provided
+	if opts.initialShares {
 		// Then try to build from keyshares
 		if opts.valKeyshare == nil {
 			return nil, errors.New("validator share cannot be nil")
@@ -89,6 +86,8 @@ func (opts Options) Apply() (Enclave, error) {
 		}
 		return BuildEnclave(opts.valKeyshare, opts.userKeyshare, opts)
 	}
+	// Load from enclave data if provided
+	return RestoreEnclaveFromData(opts.enclaveData)
 }
 
 // BuildEnclave creates a new enclave from validator and user keyshares.
